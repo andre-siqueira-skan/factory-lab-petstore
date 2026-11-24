@@ -22,7 +22,10 @@ def gh(*args: str, project: bool = False) -> str:
     env = dict(os.environ)
     if project:
         env["GH_TOKEN"] = os.environ["PROJECT_TOKEN"]
-    return subprocess.run(["gh", *args], env=env, check=True, capture_output=True, text=True).stdout
+    result = subprocess.run(["gh", *args], env=env, capture_output=True, text=True)
+    if result.returncode:
+        sys.exit(f"gh {args[0]} {args[1]} failed: {result.stderr.strip()}")
+    return result.stdout
 
 
 def graphql(query: str, **variables) -> dict:
@@ -117,25 +120,18 @@ def decide(issue: int, issue_labels: list[str]) -> str:
 def reconcile() -> None:
     """Move back every card a person moved by hand into a factory-only lane."""
     proj = project()
-    items = json.loads(
-        gh(
-            "project",
-            "item-list",
-            str(PROJECT_NUMBER),
-            "--owner",
-            OWNER,
-            "--format",
-            "json",
-            "--limit",
-            "200",
-            project=True,
-        )
-    )["items"]
+    items = graphql(
+        """query($login:String!,$n:Int!){user(login:$login){projectV2(number:$n){items(first:100){
+        nodes{id content{... on Issue{number repository{nameWithOwner}}}
+        fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}""",
+        login=OWNER,
+        n=PROJECT_NUMBER,
+    )["user"]["projectV2"]["items"]["nodes"]
     for item in items:
         content = item.get("content") or {}
-        if content.get("type") != "Issue" or content.get("repository") != f"{OWNER}/{NAME}":
+        if content.get("repository", {}).get("nameWithOwner") != f"{OWNER}/{NAME}":
             continue
-        issue, status = content["number"], item.get("status")
+        issue, status = content["number"], (item["fieldValueByName"] or {}).get("name")
         expected = last_factory_status(issue) or "Todo"
         if status != expected and (status in FACTORY_LANES or expected in FACTORY_LANES):
             graphql(
