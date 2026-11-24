@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: pets
+      POSTGRES_PASSWORD: pets
+      POSTGRES_DB: pets
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "pets"]
+      interval: 2s
+      retries: 15
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://pets:pets@db:5432/pets
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      retries: 15

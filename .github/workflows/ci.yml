@@ -1,0 +1,22 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - run: uv run --locked ruff check . && uv run --locked ruff format --check .
+      - run: uv run --locked pytest -q
+      # T8 (mechanics): the product's own stack on the runner, tests against it.
+      - run: docker compose up -d --build --wait
+      - run: uv run --locked pytest -q -m stack
+        env:
+          STACK_URL: http://localhost:8000
+      - if: always()
+        run: docker compose down -v

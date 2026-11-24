@@ -1,0 +1,25 @@
+[project]
+name = "petstore"
+version = "0.1.0"
+description = "Toy pet store API used to test GitHub agentic workflows"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.118.0",
+    "uvicorn==0.37.0",
+    "sqlalchemy==2.0.43",
+    "psycopg[binary]==3.2.10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.2",
+    "httpx==0.28.1",
+    "ruff==0.13.2",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = ["stack: needs the docker compose stack (STACK_URL)"]
