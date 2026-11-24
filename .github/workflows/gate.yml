@@ -1,0 +1,77 @@
+# T2, T3, T5, T12: an `approved` label opens the station of the gate the card is at.
+# Stations are simulated (no model): plan writes a comment, build runs the stack tests.
+name: gate
+on:
+  issues:
+    types: [labeled]
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+  issues: write
+env:
+  ISSUE: ${{ github.event.issue.number }}
+  GH_TOKEN: ${{ github.token }}
+  PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+jobs:
+  decide:
+    if: github.event.label.name == 'approved'
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.decide.outputs.action }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: decide
+        run: |
+          action=$(python3 .github/scripts/board.py decide "$ISSUE" '${{ toJSON(github.event.issue.labels.*.name) }}')
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          echo "Gate decision: $action" >> "$GITHUB_STEP_SUMMARY"
+      - if: steps.decide.outputs.action == 'ignore'
+        run: |
+          python3 .github/scripts/board.py labels "$ISSUE" -approved
+          python3 .github/scripts/board.py comment "$ISSUE" "factory: \`approved\` ignored, no gate is open on this card."
+
+  plan:
+    needs: decide
+    if: needs.decide.outputs.action == 'plan'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          python3 .github/scripts/board.py labels "$ISSUE" -approved +planning
+          python3 .github/scripts/board.py status "$ISSUE" Plan "Plan station started."
+      - name: Plan station (simulated)
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          case "$BODY" in *"[fail-plan]"*) echo "::error::simulated plan failure"; exit 1;; esac
+          python3 .github/scripts/board.py comment "$ISSUE" "factory: plan ready (simulated). Add \`approved\` to start the build."
+      - run: python3 .github/scripts/board.py labels "$ISSUE" -planning "+awaiting plan approval"
+      - if: failure()
+        run: |
+          python3 .github/scripts/board.py labels "$ISSUE" -planning "+stopped: needs a fix"
+          python3 .github/scripts/board.py comment "$ISSUE" "factory: plan station failed, see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  build:
+    needs: decide
+    if: needs.decide.outputs.action == 'build'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - run: |
+          python3 .github/scripts/board.py labels "$ISSUE" -approved "-awaiting plan approval" +implementing
+          python3 .github/scripts/board.py status "$ISSUE" Implementation "Build station started."
+      - name: Build station (simulated) - stack tests
+        run: |
+          docker compose up -d --build --wait
+          STACK_URL=http://localhost:8000 uv run --locked pytest -q
+          docker compose down -v
+      - run: |
+          python3 .github/scripts/board.py labels "$ISSUE" -implementing
+          python3 .github/scripts/board.py status "$ISSUE" "PR Review" "Build done (simulated)."
+      - if: failure()
+        run: |
+          python3 .github/scripts/board.py labels "$ISSUE" -implementing "+stopped: needs a fix"
+          python3 .github/scripts/board.py comment "$ISSUE" "factory: build station failed, see ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

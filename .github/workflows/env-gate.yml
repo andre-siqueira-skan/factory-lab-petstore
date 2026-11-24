@@ -1,0 +1,37 @@
+# T4: a human gate as a GitHub environment with required reviewers.
+name: env-gate
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+permissions:
+  contents: read
+  issues: write
+env:
+  ISSUE: ${{ inputs.issue }}
+  GH_TOKEN: ${{ github.token }}
+  PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          python3 .github/scripts/board.py status "$ISSUE" Plan "Plan station (env-gate variant)."
+          python3 .github/scripts/board.py labels "$ISSUE" "+awaiting plan approval"
+  plan-gate:
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: plan-gate
+    steps:
+      - run: echo "Plan approved by a required reviewer."
+  build:
+    needs: plan-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          python3 .github/scripts/board.py labels "$ISSUE" "-awaiting plan approval"
+          python3 .github/scripts/board.py status "$ISSUE" Implementation "Gate passed through the environment."
